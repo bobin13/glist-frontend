@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Glist</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="#" aria-label="Glist home">
+        <span class="brand-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none">
+            <path d="M5 8h14l-1.2 12H6.2L5 8Z" />
+            <path d="M9 9V6a3 3 0 0 1 6 0v3" />
+            <path d="M9 12v4m6-4v4" />
+          </svg>
+        </span>
+        <span>Glist</span>
+      </a>
+
+      <label class="list-picker">
+        <span class="sr-only">Select grocery list</span>
+        <select id="listSelector" aria-label="Select grocery list">
+          <option value="weekly">Weekly groceries</option>
+          <option value="pantry">Pantry restock</option>
+        </select>
+        <svg aria-hidden="true" viewBox="0 0 20 20" fill="none">
+          <path d="m5 7.5 5 5 5-5" />
+        </svg>
+      </label>
+
+      <details class="profile-menu">
+        <summary aria-label="Open profile menu">
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none">
+            <circle cx="12" cy="12" r="9" />
+            <circle cx="12" cy="9" r="3" />
+            <path d="M6.7 18a5.7 5.7 0 0 1 10.6 0" />
+          </svg>
+        </summary>
+        <div class="profile-dropdown">
+          <button type="button" data-dialog="loginDialog">Login</button>
+          <button type="button" data-dialog="settingsDialog">Settings</button>
+          <button type="button" data-dialog="aboutDialog">About</button>
+        </div>
+      </details>
+    </header>
+
+    <main class="container">
+      <section class="list-heading" aria-labelledby="listTitle">
+        <p class="eyebrow">YOUR SHOPPING SPACE</p>
+        <h1 id="listTitle">Weekly groceries</h1>
+      </section>
+
+      <form id="groceryForm">
+        <input
+          type="text"
+          id="itemInput"
+          placeholder="Add a grocery item..."
+          autocomplete="off"
+        />
+        <button type="submit">Add</button>
+      </form>
+
+      <ul id="groceryList"></ul>
+
+      <p id="emptyMessage">Your grocery list is empty.</p>
+    </main>
+
+    <dialog id="loginDialog" class="info-dialog">
+      <form method="dialog">
+        <button class="dialog-close" aria-label="Close">×</button>
+        <p class="eyebrow">YOUR ACCOUNT</p>
+        <h2>Login</h2>
+        <p>Sign-in is not set up yet. Your lists are currently saved in this browser.</p>
+      </form>
+    </dialog>
+
+    <dialog id="settingsDialog" class="info-dialog">
+      <form method="dialog">
+        <button class="dialog-close" aria-label="Close">×</button>
+        <p class="eyebrow">PREFERENCES</p>
+        <h2>Settings</h2>
+        <p>Your grocery lists are saved locally in this browser.</p>
+      </form>
+    </dialog>
+
+    <dialog id="aboutDialog" class="info-dialog">
+      <form method="dialog">
+        <button class="dialog-close" aria-label="Close">×</button>
+        <p class="eyebrow">ABOUT</p>
+        <h2>Glist</h2>
+        <p>A simple place to keep your grocery lists organized.</p>
+      </form>
+    </dialog>
+
+    <script src="script.js"></script>
+  </body>
+</html>

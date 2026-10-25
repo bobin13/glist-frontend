@@ -1,0 +1,1 @@
+Apples,carrot,Milk,Bread,Greek yogurt
