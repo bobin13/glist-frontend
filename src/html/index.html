@@ -50,6 +50,16 @@
       <section class="list-heading" aria-labelledby="listTitle">
         <p class="eyebrow">YOUR SHOPPING SPACE</p>
         <h1 id="listTitle">Weekly groceries</h1>
+        <span
+          id="itemCount"
+          class="item-count"
+          aria-live="polite"
+          aria-label="0 total items, 0 crossed off"
+        >
+          <span id="totalItemCount" class="item-count-total">0</span>
+          <span class="item-count-divider" aria-hidden="true">/</span>
+          <span id="crossedOffCount" class="item-count-crossed-off">0</span>
+        </span>
       </section>
 
       <form id="groceryForm">
@@ -67,12 +77,37 @@
       <p id="emptyMessage">Your grocery list is empty.</p>
     </main>
 
+    <footer class="site-footer">
+      <span>Made with care by Bobin</span>
+      <a
+        href="https://buymeacoffee.com/bobin13"
+        target="_blank"
+        rel="noopener noreferrer"
+      >
+        <svg
+          class="coffee-icon"
+          aria-hidden="true"
+          viewBox="0 0 20 20"
+          fill="none"
+        >
+          <path d="M4 7h9v5a4 4 0 0 1-4 4H8a4 4 0 0 1-4-4V7Z" />
+          <path
+            d="M13 8h1.5a2 2 0 0 1 0 4H13M6 4c0 1 1 1 1 2m3-2c0 1 1 1 1 2"
+          />
+        </svg>
+        <span>Buy me a coffee</span>
+      </a>
+    </footer>
+
     <dialog id="loginDialog" class="info-dialog">
       <form method="dialog">
         <button class="dialog-close" aria-label="Close">×</button>
         <p class="eyebrow">YOUR ACCOUNT</p>
         <h2>Login</h2>
-        <p>Sign-in is not set up yet. Your lists are currently saved in this browser.</p>
+        <p>
+          Sign-in is not set up yet. Your lists are currently saved in this
+          browser.
+        </p>
       </form>
     </dialog>
 
