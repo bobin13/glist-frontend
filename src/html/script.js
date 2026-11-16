@@ -8,7 +8,7 @@ const itemCount = document.getElementById("itemCount");
 const totalItemCount = document.getElementById("totalItemCount");
 const crossedOffCountLabel = document.getElementById("crossedOffCount");
 const profileMenu = document.querySelector(".profile-menu");
-const GROCERY_ITEMS_API_URL = "http://192.168.2.69:3000/api/";
+const GROCERY_ITEMS_API_URL = "https://glist-backend.vercel.app/api/";
 
 const lists = {
     weekly: [],
