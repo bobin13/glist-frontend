@@ -8,7 +8,12 @@ const itemCount = document.getElementById("itemCount");
 const totalItemCount = document.getElementById("totalItemCount");
 const crossedOffCountLabel = document.getElementById("crossedOffCount");
 const profileMenu = document.querySelector(".profile-menu");
-const GROCERY_ITEMS_API_URL = "https://glist-backend.vercel.app/api/";
+// When served from localhost, talk to the local backend (glist-backend on port 3000);
+// otherwise use the deployed Vercel backend.
+const IS_LOCAL_DEV = ["localhost", "127.0.0.1", "[::1]"].includes(window.location.hostname);
+const GROCERY_ITEMS_API_URL = IS_LOCAL_DEV
+    ? "http://localhost:3000/api/"
+    : "https://glist-backend.vercel.app/api/";
 
 const lists = {
     weekly: [],
