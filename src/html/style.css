@@ -336,7 +336,7 @@ button:active {
     gap: 3px;
 }
 
-.item-added-time {
+.item-meta {
     color: var(--muted);
     font-size: 11px;
     line-height: 1.3;
@@ -411,7 +411,6 @@ button:active {
 }
 
 .info-dialog form {
-    display: block;
     margin: 0;
 }
 
@@ -420,9 +419,9 @@ button:active {
     font-size: 24px;
 }
 
-.info-dialog p:last-child {
-    color: var(--muted);
-    line-height: 1.6;
+.info-dialog h3 {
+    margin: 22px 0 10px;
+    font-size: 15px;
 }
 
 .info-dialog .dialog-close {
@@ -467,7 +466,7 @@ button:active {
 
     .list-picker select {
         min-width: 0;
-        max-width: 145px;
+        max-width: 120px;
         padding: 10px 30px 10px 10px;
         font-size: 12px;
     }
@@ -504,4 +503,425 @@ button:active {
     .grocery-item.is-crossing-off {
         animation-duration: 1ms;
     }
+}
+
+/* ------------------------------------------------------------------ */
+/* Accounts, shared lists and admin                                    */
+/* ------------------------------------------------------------------ */
+
+[hidden] {
+    display: none !important;
+}
+
+body.is-loading .signed-in-only,
+body.is-loading .signed-out-only,
+body.is-signed-in .signed-out-only,
+body.is-signed-out .signed-in-only {
+    display: none !important;
+}
+
+.muted {
+    color: var(--muted);
+    line-height: 1.6;
+}
+
+.small {
+    font-size: 13px;
+}
+
+input[type="text"],
+input[type="email"],
+input[type="password"],
+.info-dialog select,
+.member-row select {
+    width: 100%;
+    padding: 11px 13px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    outline: none;
+    background: var(--surface);
+    color: var(--text);
+    font: inherit;
+    font-size: 15px;
+}
+
+input:focus,
+.info-dialog select:focus {
+    border-color: #65876b;
+}
+
+input:disabled {
+    color: var(--muted);
+}
+
+/* Top bar */
+
+.list-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.icon-btn {
+    display: grid;
+    place-items: center;
+    width: 42px;
+    height: 42px;
+    padding: 0;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--accent);
+}
+
+.icon-btn:hover {
+    border-color: #536456;
+}
+
+.icon-btn svg {
+    width: 18px;
+    stroke: currentColor;
+    stroke-linecap: round;
+    stroke-width: 2;
+}
+
+.profile-initial {
+    color: var(--accent);
+    font-size: 16px;
+    font-weight: 750;
+}
+
+.profile-dropdown {
+    min-width: 220px;
+}
+
+.profile-name {
+    display: grid;
+    gap: 2px;
+    padding: 8px 12px 10px;
+    margin-bottom: 4px;
+    border-bottom: 1px solid var(--border);
+    font-size: 14px;
+}
+
+.profile-name span {
+    color: var(--muted);
+    font-size: 12px;
+    overflow-wrap: anywhere;
+}
+
+/* Buttons */
+
+.secondary-btn {
+    padding: 9px 14px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    font-size: 14px;
+}
+
+.secondary-btn:hover {
+    border-color: #536456;
+}
+
+.danger-btn {
+    padding: 9px 14px;
+    border: 1px solid #513432;
+    background: #322321;
+    color: #f0a59c;
+    font-size: 14px;
+}
+
+.danger-btn:hover:not(:disabled) {
+    background: #482a27;
+}
+
+button:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+}
+
+.link-btn {
+    padding: 0;
+    background: none;
+    color: var(--accent);
+    font-size: inherit;
+    font-weight: 600;
+}
+
+.link-btn:hover {
+    text-decoration: underline;
+}
+
+/* Sign in */
+
+.auth-card {
+    max-width: 420px;
+    margin: 0 auto;
+    padding: 30px;
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    background: var(--surface);
+}
+
+.auth-card h1 {
+    margin-bottom: 6px;
+}
+
+.stacked-form {
+    display: grid;
+    gap: 14px;
+    margin: 22px 0 0;
+}
+
+.stacked-form label {
+    display: grid;
+    gap: 6px;
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.stacked-form fieldset {
+    display: grid;
+    gap: 12px;
+    padding: 14px;
+    border: 1px solid var(--border);
+    border-radius: 11px;
+}
+
+.stacked-form legend {
+    padding: 0 6px;
+    color: var(--muted);
+    font-size: 13px;
+}
+
+.form-error {
+    color: #f0a59c;
+    font-size: 14px;
+    line-height: 1.4;
+}
+
+.form-error:empty {
+    display: none;
+}
+
+.auth-switch {
+    margin-top: 18px;
+    color: var(--muted);
+    font-size: 14px;
+    text-align: center;
+}
+
+/* List page */
+
+.empty-state {
+    padding: 34px 26px;
+    border: 1px dashed #354036;
+    border-radius: 16px;
+    text-align: center;
+}
+
+.empty-state h1 {
+    margin-bottom: 8px;
+}
+
+.empty-state button {
+    margin-top: 18px;
+}
+
+.list-title-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.viewer-notice {
+    margin-bottom: 20px;
+    padding: 12px 14px;
+    border: 1px solid var(--border);
+    border-radius: 11px;
+    color: var(--muted);
+    font-size: 14px;
+}
+
+/* Dialogs */
+
+.info-dialog .dialog-close {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+}
+
+.info-dialog {
+    position: fixed;
+    max-height: calc(100vh - 40px);
+    overflow-y: auto;
+}
+
+.info-dialog .muted.small {
+    margin-bottom: 10px;
+}
+
+.wide-dialog {
+    width: min(520px, calc(100% - 32px));
+}
+
+.admin-dialog {
+    width: min(720px, calc(100% - 32px));
+}
+
+.inline-form {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 8px;
+    margin: 0;
+}
+
+.inline-form .grow {
+    flex: 1 1 180px;
+    display: grid;
+    gap: 4px;
+}
+
+.inline-form button {
+    padding: 11px 16px;
+    font-size: 14px;
+}
+
+.member-list,
+.admin-user-list {
+    display: grid;
+    gap: 8px;
+    list-style: none;
+}
+
+.member-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 11px;
+    background: var(--surface);
+}
+
+.member-who {
+    display: grid;
+    flex: 1 1 160px;
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.member-row select {
+    width: auto;
+    padding: 8px 10px;
+    font-size: 13px;
+}
+
+.role-badge {
+    padding: 3px 9px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    color: var(--accent);
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.role-badge.is-danger {
+    border-color: #513432;
+    color: #f0a59c;
+}
+
+.danger-zone {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 24px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+}
+
+#listDialog:not(.is-owner) .owner-only,
+#listDialog.is-owner .non-owner-only {
+    display: none;
+}
+
+.admin-user {
+    display: grid;
+    gap: 10px;
+    padding: 14px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--surface);
+}
+
+.admin-user.is-disabled {
+    border-color: #513432;
+}
+
+.admin-user-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+}
+
+.admin-user-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 16px;
+}
+
+.admin-user-actions .danger-btn {
+    margin-left: auto;
+}
+
+.toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 14px;
+    cursor: pointer;
+}
+
+.toggle input {
+    width: 16px;
+    height: 16px;
+    accent-color: var(--accent);
+}
+
+/* Toast */
+
+.toast {
+    position: fixed;
+    left: 50%;
+    bottom: 24px;
+    z-index: 10;
+    max-width: calc(100% - 32px);
+    padding: 12px 16px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--surface-raised);
+    box-shadow: 0 14px 36px rgb(0 0 0 / 40%);
+    font-size: 14px;
+    transform: translateX(-50%);
+}
+
+@media (max-width: 400px) {
+    .icon-btn {
+        width: 38px;
+        height: 38px;
+    }
+
+    .auth-card {
+        padding: 22px;
+    }
+}
+
+#addMemberForm {
+    display: block;
+    margin: 0;
 }

@@ -6,7 +6,7 @@
     <title>Glist</title>
     <link rel="stylesheet" href="style.css" />
   </head>
-  <body>
+  <body class="is-loading">
     <header class="topbar">
       <a class="brand" href="#" aria-label="Glist home">
         <span class="brand-icon" aria-hidden="true">
@@ -19,62 +19,113 @@
         <span>Glist</span>
       </a>
 
-      <label class="list-picker">
-        <span class="sr-only">Select grocery list</span>
-        <select id="listSelector" aria-label="Select grocery list">
-          <option value="weekly">Weekly groceries</option>
-          <option value="pantry">Pantry restock</option>
-        </select>
-        <svg aria-hidden="true" viewBox="0 0 20 20" fill="none">
-          <path d="m5 7.5 5 5 5-5" />
-        </svg>
-      </label>
-
-      <details class="profile-menu">
-        <summary aria-label="Open profile menu">
-          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none">
-            <circle cx="12" cy="12" r="9" />
-            <circle cx="12" cy="9" r="3" />
-            <path d="M6.7 18a5.7 5.7 0 0 1 10.6 0" />
+      <div class="list-controls signed-in-only">
+        <label class="list-picker">
+          <span class="sr-only">Select grocery list</span>
+          <select id="listSelector" aria-label="Select grocery list"></select>
+          <svg aria-hidden="true" viewBox="0 0 20 20" fill="none">
+            <path d="m5 7.5 5 5 5-5" />
           </svg>
+        </label>
+        <button type="button" id="newListButton" class="icon-btn" aria-label="Create a new list" title="New list">
+          <svg aria-hidden="true" viewBox="0 0 20 20" fill="none"><path d="M10 4v12M4 10h12" /></svg>
+        </button>
+      </div>
+
+      <details class="profile-menu signed-in-only">
+        <summary aria-label="Open profile menu">
+          <span id="profileInitial" class="profile-initial" aria-hidden="true"></span>
         </summary>
         <div class="profile-dropdown">
-          <button type="button" data-dialog="loginDialog">Login</button>
-          <button type="button" data-dialog="settingsDialog">Settings</button>
-          <button type="button" data-dialog="aboutDialog">About</button>
+          <p class="profile-name">
+            <strong id="profileName"></strong>
+            <span id="profileEmail"></span>
+          </p>
+          <button type="button" data-action="account">Account settings</button>
+          <button type="button" data-action="admin" id="adminMenuButton" hidden>Admin: manage users</button>
+          <button type="button" data-action="about">About</button>
+          <button type="button" data-action="logout">Sign out</button>
         </div>
       </details>
     </header>
 
     <main class="container">
-      <section class="list-heading" aria-labelledby="listTitle">
-        <p class="eyebrow">YOUR SHOPPING SPACE</p>
-        <h1 id="listTitle">Weekly groceries</h1>
-        <span
-          id="itemCount"
-          class="item-count"
-          aria-live="polite"
-          aria-label="0 total items, 0 crossed off"
-        >
-          <span id="totalItemCount" class="item-count-total">0</span>
-          <span class="item-count-divider" aria-hidden="true">/</span>
-          <span id="crossedOffCount" class="item-count-crossed-off">0</span>
-        </span>
+      <!-- Shown when signed out -->
+      <section id="authView" class="auth-card signed-out-only" aria-labelledby="authTitle">
+        <p class="eyebrow">WELCOME TO GLIST</p>
+        <h1 id="authTitle">Sign in</h1>
+        <p class="muted">Share grocery lists with the people you shop with.</p>
+
+        <form id="authForm" class="stacked-form" novalidate>
+          <label id="displayNameField" hidden>
+            <span>Your name</span>
+            <input type="text" name="display_name" autocomplete="name" maxlength="50" />
+          </label>
+          <label>
+            <span>Email</span>
+            <input type="email" name="email" autocomplete="email" required />
+          </label>
+          <label>
+            <span>Password</span>
+            <input type="password" name="password" autocomplete="current-password" required minlength="8" />
+          </label>
+          <p id="authError" class="form-error" role="alert"></p>
+          <button type="submit" id="authSubmit">Sign in</button>
+        </form>
+
+        <p class="auth-switch">
+          <span id="authSwitchText">New here?</span>
+          <button type="button" id="authSwitch" class="link-btn">Create an account</button>
+        </p>
       </section>
 
-      <form id="groceryForm">
-        <input
-          type="text"
-          id="itemInput"
-          placeholder="Add a grocery item..."
-          autocomplete="off"
-        />
-        <button type="submit">Add</button>
-      </form>
+      <!-- Shown when signed in -->
+      <div id="appView" class="signed-in-only">
+        <section id="noListsView" class="empty-state" hidden>
+          <p class="eyebrow">YOUR SHOPPING SPACE</p>
+          <h1>No lists yet</h1>
+          <p class="muted">Create a list, then share it with the people you shop with.</p>
+          <button type="button" id="firstListButton">Create your first list</button>
+        </section>
 
-      <ul id="groceryList"></ul>
+        <div id="listView" hidden>
+          <section class="list-heading" aria-labelledby="listTitle">
+            <p id="listEyebrow" class="eyebrow">YOUR SHOPPING SPACE</p>
+            <div class="list-title-row">
+              <h1 id="listTitle"></h1>
+              <button type="button" id="manageListButton" class="secondary-btn">Share &amp; manage</button>
+            </div>
+            <span
+              id="itemCount"
+              class="item-count"
+              aria-live="polite"
+              aria-label="0 total items, 0 crossed off"
+            >
+              <span id="totalItemCount" class="item-count-total">0</span>
+              <span class="item-count-divider" aria-hidden="true">/</span>
+              <span id="crossedOffCount" class="item-count-crossed-off">0</span>
+            </span>
+          </section>
 
-      <p id="emptyMessage">Your grocery list is empty.</p>
+          <form id="groceryForm">
+            <input
+              type="text"
+              id="itemInput"
+              placeholder="Add a grocery item..."
+              autocomplete="off"
+              maxlength="200"
+            />
+            <button type="submit">Add</button>
+          </form>
+          <p id="viewerNotice" class="viewer-notice" hidden>
+            You can view this list. Ask the owner for edit access to add or remove items.
+          </p>
+
+          <ul id="groceryList"></ul>
+
+          <p id="emptyMessage">This list is empty.</p>
+        </div>
+      </div>
     </main>
 
     <footer class="site-footer">
@@ -99,34 +150,111 @@
       </a>
     </footer>
 
-    <dialog id="loginDialog" class="info-dialog">
-      <form method="dialog">
-        <button class="dialog-close" aria-label="Close">×</button>
-        <p class="eyebrow">YOUR ACCOUNT</p>
-        <h2>Login</h2>
-        <p>
-          Sign-in is not set up yet. Your lists are currently saved in this
-          browser.
-        </p>
+    <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+    <!-- New list -->
+    <dialog id="newListDialog" class="info-dialog">
+      <button type="button" class="dialog-close" aria-label="Close" data-close>×</button>
+      <p class="eyebrow">NEW LIST</p>
+      <h2>Create a list</h2>
+      <form id="newListForm" class="stacked-form">
+        <label>
+          <span>List name</span>
+          <input type="text" name="name" maxlength="60" required placeholder="e.g. Weekly groceries" />
+        </label>
+        <p class="form-error" role="alert"></p>
+        <button type="submit">Create list</button>
       </form>
     </dialog>
 
-    <dialog id="settingsDialog" class="info-dialog">
-      <form method="dialog">
-        <button class="dialog-close" aria-label="Close">×</button>
-        <p class="eyebrow">PREFERENCES</p>
-        <h2>Settings</h2>
-        <p>Your grocery lists are saved locally in this browser.</p>
+    <!-- Share & manage the current list -->
+    <dialog id="listDialog" class="info-dialog wide-dialog">
+      <button type="button" class="dialog-close" aria-label="Close" data-close>×</button>
+      <p class="eyebrow">LIST SETTINGS</p>
+      <h2 id="listDialogTitle"></h2>
+
+      <form id="renameListForm" class="inline-form owner-only">
+        <label class="grow">
+          <span class="sr-only">List name</span>
+          <input type="text" name="name" maxlength="60" required />
+        </label>
+        <button type="submit" class="secondary-btn">Rename</button>
       </form>
+
+      <h3>People on this list</h3>
+      <ul id="memberList" class="member-list"></ul>
+
+      <form id="addMemberForm" class="owner-only">
+        <h3>Add someone</h3>
+        <p class="muted small">They need a Glist account. Editors can add and remove items. Viewers can only look.</p>
+        <div class="inline-form">
+          <label class="grow">
+            <span class="sr-only">Their email</span>
+            <input type="email" name="email" placeholder="their@email.com" required />
+          </label>
+          <label>
+            <span class="sr-only">Access</span>
+            <select name="role">
+              <option value="editor">Can edit</option>
+              <option value="viewer">Can view</option>
+            </select>
+          </label>
+          <button type="submit">Add</button>
+        </div>
+      </form>
+      <p id="listDialogError" class="form-error" role="alert"></p>
+
+      <div class="danger-zone">
+        <button type="button" id="deleteListButton" class="danger-btn owner-only">Delete this list</button>
+        <button type="button" id="leaveListButton" class="danger-btn non-owner-only">Leave this list</button>
+      </div>
+    </dialog>
+
+    <!-- Account settings -->
+    <dialog id="accountDialog" class="info-dialog">
+      <button type="button" class="dialog-close" aria-label="Close" data-close>×</button>
+      <p class="eyebrow">YOUR ACCOUNT</p>
+      <h2>Account settings</h2>
+      <form id="accountForm" class="stacked-form">
+        <label>
+          <span>Your name</span>
+          <input type="text" name="display_name" maxlength="50" required autocomplete="name" />
+        </label>
+        <label>
+          <span>Email</span>
+          <input type="email" name="email" disabled />
+        </label>
+        <fieldset>
+          <legend>Change password (optional)</legend>
+          <label>
+            <span>Current password</span>
+            <input type="password" name="current_password" autocomplete="current-password" />
+          </label>
+          <label>
+            <span>New password</span>
+            <input type="password" name="new_password" autocomplete="new-password" minlength="8" />
+          </label>
+        </fieldset>
+        <p class="form-error" role="alert"></p>
+        <button type="submit">Save changes</button>
+      </form>
+    </dialog>
+
+    <!-- Admin -->
+    <dialog id="adminDialog" class="info-dialog admin-dialog">
+      <button type="button" class="dialog-close" aria-label="Close" data-close>×</button>
+      <p class="eyebrow">ADMIN</p>
+      <h2>Manage users</h2>
+      <p class="muted small">Changes save immediately. Deleting a user hands their shared lists to another member and deletes lists nobody else uses.</p>
+      <p id="adminError" class="form-error" role="alert"></p>
+      <ul id="adminUserList" class="admin-user-list"></ul>
     </dialog>
 
     <dialog id="aboutDialog" class="info-dialog">
-      <form method="dialog">
-        <button class="dialog-close" aria-label="Close">×</button>
-        <p class="eyebrow">ABOUT</p>
-        <h2>Glist</h2>
-        <p>A simple place to keep your grocery lists organized.</p>
-      </form>
+      <button type="button" class="dialog-close" aria-label="Close" data-close>×</button>
+      <p class="eyebrow">ABOUT</p>
+      <h2>Glist</h2>
+      <p class="muted">A simple place to keep your grocery lists organized and shared.</p>
     </dialog>
 
     <script src="script.js"></script>

@@ -1,2 +1,11 @@
 [build]
     publish = "src/html"
+
+# Send API calls to the Vercel backend through Netlify, so the browser sees them as
+# same-origin and the login cookie is a first-party cookie (Safari and other browsers
+# block third-party cookies).
+[[redirects]]
+    from = "/api/*"
+    to = "https://glist-backend.vercel.app/api/:splat"
+    status = 200
+    force = true

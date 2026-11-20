@@ -1,91 +1,363 @@
-const groceryForm = document.getElementById("groceryForm");
-const itemInput = document.getElementById("itemInput");
-const groceryList = document.getElementById("groceryList");
-const emptyMessage = document.getElementById("emptyMessage");
-const listSelector = document.getElementById("listSelector");
-const listTitle = document.getElementById("listTitle");
-const itemCount = document.getElementById("itemCount");
-const totalItemCount = document.getElementById("totalItemCount");
-const crossedOffCountLabel = document.getElementById("crossedOffCount");
-const profileMenu = document.querySelector(".profile-menu");
-// When served from localhost, talk to the local backend (glist-backend on port 3000);
-// otherwise use the deployed Vercel backend.
-const IS_LOCAL_DEV = ["localhost", "127.0.0.1", "[::1]"].includes(window.location.hostname);
-const GROCERY_ITEMS_API_URL = IS_LOCAL_DEV
-    ? "http://localhost:3000/api/"
-    : "https://glist-backend.vercel.app/api/";
+// ---------------------------------------------------------------------------
+// Config
+// ---------------------------------------------------------------------------
 
-const lists = {
-    weekly: [],
-    pantry: []
-};
-let activeListId = listSelector.value;
+// Locally, talk to glist-backend on port 3000. In production the Netlify site proxies
+// /api/* to the Vercel backend (see netlify.toml), so requests are same-origin and the
+// session cookie is first-party.
+const IS_LOCAL_DEV = ["localhost", "127.0.0.1", "[::1]"].includes(window.location.hostname);
+const API_URL = IS_LOCAL_DEV ? "http://localhost:3000/api/" : "/api/";
+
+const ACTIVE_LIST_KEY = "glist.activeListId";
+const REMOVED_ITEM_RETENTION_MS = 24 * 60 * 60 * 1000;
+
+// ---------------------------------------------------------------------------
+// Elements
+// ---------------------------------------------------------------------------
+
+const $ = (id) => document.getElementById(id);
+
+const authForm = $("authForm");
+const authError = $("authError");
+const listSelector = $("listSelector");
+const listView = $("listView");
+const noListsView = $("noListsView");
+const listTitle = $("listTitle");
+const listEyebrow = $("listEyebrow");
+const groceryForm = $("groceryForm");
+const itemInput = $("itemInput");
+const groceryList = $("groceryList");
+const emptyMessage = $("emptyMessage");
+const viewerNotice = $("viewerNotice");
+const itemCount = $("itemCount");
+const totalItemCount = $("totalItemCount");
+const crossedOffCountLabel = $("crossedOffCount");
+const profileMenu = document.querySelector(".profile-menu");
+const toast = $("toast");
+
+const listDialog = $("listDialog");
+const memberList = $("memberList");
+const listDialogError = $("listDialogError");
+const adminDialog = $("adminDialog");
+const adminUserList = $("adminUserList");
+const adminError = $("adminError");
+
+// ---------------------------------------------------------------------------
+// State
+// ---------------------------------------------------------------------------
+
+let currentUser = null;
+let lists = [];
+let activeList = null;
+let items = [];
+let itemsLoaded = false;
+let eventSource = null;
+let authMode = "login";
+let removedItemExpirationTimer;
 const pendingRequestIds = new Set();
 const itemsToAnimateIn = new Set();
 const itemsToAnimateRemoved = new Set();
-let removedItemExpirationTimer;
 
-function saveLists() {
-    try {
-        localStorage.setItem("glist.groceryLists", JSON.stringify(lists));
-    } catch (error) {
-        console.error("Unable to save grocery lists in this browser:", error);
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+class ApiError extends Error {
+    constructor(message, status) {
+        super(message);
+        this.status = status;
     }
 }
 
-function loadSavedLists() {
+async function api(path, { method = "GET", body, requestId } = {}) {
+    const headers = {};
+    if (body !== undefined) headers["Content-Type"] = "application/json";
+    if (requestId) headers["X-Client-Request-Id"] = requestId;
+
+    let response;
     try {
-        const storedLists = JSON.parse(localStorage.getItem("glist.groceryLists"));
-
-        if (!storedLists || typeof storedLists !== "object" || Array.isArray(storedLists)) {
-            return false;
-        }
-
-        Object.keys(lists).forEach((listId) => {
-            if (Array.isArray(storedLists[listId])) {
-                lists[listId] = storedLists[listId]
-                    .map((item) => typeof item === "string"
-                        ? { id: null, name: item }
-                        : item && {
-                            id: typeof item.id === "string" ? item.id : null,
-                            name: item.name,
-                            created_at: item.created_at || null,
-                            removed_at: item.removed_at || null
-                        })
-                    .filter((item) => item && typeof item.name === "string" && item.name.trim() !== "");
-            }
+        response = await fetch(API_URL + path, {
+            method,
+            headers,
+            credentials: "include",
+            body: body === undefined ? undefined : JSON.stringify(body)
         });
+    } catch {
+        throw new ApiError("Can't reach the server. Check your connection and try again.", 0);
+    }
 
-        return true;
+    const data = response.status === 204 ? null : await response.json().catch(() => null);
+    if (!response.ok) {
+        if (response.status === 401 && currentUser && !path.startsWith("auth/")) {
+            handleSignedOut("Your session ended. Please sign in again.");
+        }
+        throw new ApiError(data?.error || `Request failed (${response.status})`, response.status);
+    }
+    return data;
+}
+
+// Small DOM builder: el("button", { className: "x", onclick }, "Text", childNode)
+function el(tag, props = {}, ...children) {
+    const node = document.createElement(tag);
+    Object.entries(props).forEach(([key, value]) => {
+        if (value === undefined || value === null || value === false) return;
+        if (key === "dataset") Object.assign(node.dataset, value);
+        else if (key in node) node[key] = value;
+        else node.setAttribute(key, value);
+    });
+    node.append(...children.filter((child) => child !== null && child !== undefined && child !== false));
+    return node;
+}
+
+let toastTimer;
+function showToast(message) {
+    toast.textContent = message;
+    toast.hidden = false;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { toast.hidden = true; }, 4000);
+}
+
+function setFormError(form, message) {
+    const target = form.querySelector(".form-error");
+    if (target) target.textContent = message || "";
+}
+
+function formatElapsedTime(timestamp) {
+    const elapsedHours = Math.max(0, Math.floor((Date.now() - Date.parse(timestamp)) / 3600000));
+    if (elapsedHours < 1) return "less than an hour ago";
+    if (elapsedHours < 24) return `${elapsedHours} ${elapsedHours === 1 ? "hour" : "hours"} ago`;
+    const elapsedDays = Math.floor(elapsedHours / 24);
+    return `${elapsedDays} ${elapsedDays === 1 ? "day" : "days"} ago`;
+}
+
+function plural(count, word) {
+    return `${count} ${word}${count === 1 ? "" : "s"}`;
+}
+
+// ---------------------------------------------------------------------------
+// Sign in / sign up / sign out
+// ---------------------------------------------------------------------------
+
+function setAuthMode(mode) {
+    authMode = mode;
+    const isRegister = mode === "register";
+    $("authTitle").textContent = isRegister ? "Create an account" : "Sign in";
+    $("authSubmit").textContent = isRegister ? "Create account" : "Sign in";
+    $("authSwitchText").textContent = isRegister ? "Already have an account?" : "New here?";
+    $("authSwitch").textContent = isRegister ? "Sign in" : "Create an account";
+    $("displayNameField").hidden = !isRegister;
+    authForm.elements.display_name.required = isRegister;
+    authForm.elements.password.autocomplete = isRegister ? "new-password" : "current-password";
+    authError.textContent = "";
+}
+
+$("authSwitch").addEventListener("click", () => {
+    setAuthMode(authMode === "login" ? "register" : "login");
+});
+
+authForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const form = authForm.elements;
+    const submit = $("authSubmit");
+    authError.textContent = "";
+
+    const body = { email: form.email.value.trim(), password: form.password.value };
+    if (authMode === "register") {
+        body.display_name = form.display_name.value.trim();
+        if (!body.display_name) return void (authError.textContent = "Please enter your name.");
+        if (body.password.length < 8) return void (authError.textContent = "Password must be at least 8 characters.");
+    }
+
+    submit.disabled = true;
+    try {
+        const { user } = await api(authMode === "register" ? "auth/register" : "auth/login", {
+            method: "POST",
+            body
+        });
+        authForm.reset();
+        await setSignedIn(user);
     } catch (error) {
-        console.error("Unable to load saved grocery lists:", error);
-        return false;
+        authError.textContent = error.message;
+    } finally {
+        submit.disabled = false;
+    }
+});
+
+async function setSignedIn(user) {
+    currentUser = user;
+    document.body.classList.remove("is-loading", "is-signed-out");
+    document.body.classList.add("is-signed-in");
+    renderProfile();
+    try {
+        await loadLists();
+    } catch (error) {
+        showToast(`Couldn't load your lists: ${error.message}`);
     }
 }
 
-function renderCurrentList() {
+function handleSignedOut(message = "") {
+    currentUser = null;
+    activeList = null;
+    lists = [];
+    items = [];
+    eventSource?.close();
+    eventSource = null;
+    clearTimeout(removedItemExpirationTimer);
+    document.querySelectorAll("dialog[open]").forEach((dialog) => dialog.close());
+    document.body.classList.remove("is-loading", "is-signed-in");
+    document.body.classList.add("is-signed-out");
+    setAuthMode("login");
+    authError.textContent = message;
+}
+
+async function signOut() {
+    try {
+        await api("auth/logout", { method: "POST" });
+    } catch (error) {
+        console.error("Sign out failed:", error);
+    }
+    handleSignedOut();
+}
+
+function renderProfile() {
+    const name = currentUser.display_name || currentUser.email;
+    $("profileName").textContent = name;
+    $("profileEmail").textContent = currentUser.email;
+    $("profileInitial").textContent = name.trim().charAt(0).toUpperCase();
+    $("adminMenuButton").hidden = !currentUser.is_admin;
+}
+
+// ---------------------------------------------------------------------------
+// Lists
+// ---------------------------------------------------------------------------
+
+async function loadLists(preferredListId = null) {
+    const { lists: fetched } = await api("lists");
+    lists = fetched;
+    renderListSelector();
+
+    if (lists.length === 0) {
+        activeList = null;
+        eventSource?.close();
+        listView.hidden = true;
+        noListsView.hidden = false;
+        return;
+    }
+
+    const wantedId = preferredListId || activeList?.id || localStorage.getItem(ACTIVE_LIST_KEY);
+    const next = lists.find((list) => list.id === wantedId) || lists[0];
+    await openList(next.id);
+}
+
+function renderListSelector() {
+    listSelector.replaceChildren(...lists.map((list) => el("option", {
+        value: list.id,
+        textContent: list.role === "owner" ? list.name : `${list.name} (shared)`
+    })));
+    listSelector.disabled = lists.length === 0;
+    if (activeList) listSelector.value = activeList.id;
+}
+
+async function openList(listId) {
+    const list = lists.find((candidate) => candidate.id === listId);
+    if (!list) return;
+
+    const isSameList = activeList?.id === listId;
+    activeList = list;
+    localStorage.setItem(ACTIVE_LIST_KEY, listId);
+    listSelector.value = listId;
+    noListsView.hidden = true;
+    listView.hidden = false;
+
+    if (!isSameList) {
+        items = [];
+        itemsLoaded = false;
+        renderItems();
+        connectEvents(listId);
+    }
+    await refreshItems();
+}
+
+listSelector.addEventListener("change", () => {
+    openList(listSelector.value).catch((error) => showToast(error.message));
+});
+
+function renderListHeading() {
+    listTitle.textContent = activeList.name;
+
+    const others = activeList.member_count - 1;
+    if (activeList.role === "owner") {
+        listEyebrow.textContent = others > 0
+            ? `SHARED WITH ${others} ${others === 1 ? "PERSON" : "PEOPLE"}`
+            : "YOUR SHOPPING SPACE";
+    } else {
+        listEyebrow.textContent = `SHARED BY ${(activeList.owner_name || "another member").toUpperCase()}`;
+    }
+
+    const canEdit = activeList.role !== "viewer";
+    groceryForm.hidden = !canEdit;
+    viewerNotice.hidden = canEdit;
+    $("manageListButton").textContent = activeList.role === "owner" ? "Share & manage" : "List details";
+}
+
+// Re-fetches list metadata (name, member counts) without reloading items.
+async function refreshListMetadata() {
+    const { lists: fetched } = await api("lists");
+    lists = fetched;
+    const stillThere = activeList && lists.find((list) => list.id === activeList.id);
+    if (!stillThere) return loadLists();
+    activeList = stillThere;
+    renderListSelector();
+    renderListHeading();
+}
+
+// ---------------------------------------------------------------------------
+// Items
+// ---------------------------------------------------------------------------
+
+function normalizeItem(apiItem) {
+    return {
+        id: apiItem.id,
+        listId: apiItem.list_id,
+        name: apiItem.name.trim(),
+        created_at: apiItem.created_at || null,
+        removed_at: apiItem.removed_at || null,
+        added_by_name: apiItem.added_by_name || null,
+        removed_by_name: apiItem.removed_by_name || null
+    };
+}
+
+async function refreshItems() {
+    if (!activeList) return;
+    const listId = activeList.id;
+    const result = await api(`lists/${listId}/items`);
+    if (activeList?.id !== listId) return; // switched lists while loading
+
+    if (result.role && result.role !== activeList.role) activeList.role = result.role;
+    const pendingItems = items.filter((item) => item.pending);
+    items = result.items.map(normalizeItem).filter((item) => item.name).concat(pendingItems);
+    itemsLoaded = true;
+    renderItems();
+}
+
+function renderItems() {
     groceryList.replaceChildren();
-    listTitle.textContent = listSelector.options[listSelector.selectedIndex].text;
+    if (!activeList) return;
+    renderListHeading();
 
-    const currentItems = lists[activeListId];
-    const crossedOffCount = currentItems.filter((item) => item.removed_at).length;
-    totalItemCount.textContent = currentItems.length;
-    crossedOffCountLabel.textContent = crossedOffCount;
-    itemCount.setAttribute(
-        "aria-label",
-        `${currentItems.length} total ${currentItems.length === 1 ? "item" : "items"}, `
-        + `${crossedOffCount} crossed off`
-    );
+    const crossedOff = items.filter((item) => item.removed_at).length;
+    totalItemCount.textContent = items.length;
+    crossedOffCountLabel.textContent = crossedOff;
+    itemCount.setAttribute("aria-label", `${plural(items.length, "total item")}, ${crossedOff} crossed off`);
 
+    const canEdit = activeList.role !== "viewer";
     const sortedItems = [
-        ...currentItems.filter((item) => !item.removed_at),
-        ...currentItems.filter((item) => item.removed_at)
+        ...items.filter((item) => !item.removed_at),
+        ...items.filter((item) => item.removed_at)
     ];
 
     sortedItems.forEach((item) => {
-        const listItem = document.createElement("li");
-        listItem.className = "grocery-item";
-        listItem.dataset.itemId = item.id || "";
+        const listItem = el("li", { className: "grocery-item", dataset: { itemId: item.id || "" } });
         if (itemsToAnimateIn.has(item)) {
             listItem.classList.add("is-entering");
             requestAnimationFrame(() => itemsToAnimateIn.delete(item));
@@ -95,319 +367,613 @@ function renderCurrentList() {
             requestAnimationFrame(() => itemsToAnimateRemoved.delete(item));
         }
 
-        const itemDetails = document.createElement("div");
-        itemDetails.className = "item-details";
-
-        const itemText = document.createElement("span");
-        itemText.className = "item-name";
-        itemText.textContent = item.name;
-        itemDetails.appendChild(itemText);
-        if (item.created_at && Number.isFinite(Date.parse(item.created_at))) {
-            const addedTime = document.createElement("time");
-            addedTime.className = "item-added-time";
-            addedTime.dateTime = item.created_at;
-            addedTime.textContent = formatElapsedTime(item.created_at);
-            addedTime.title = `Added ${new Date(item.created_at).toLocaleString()}`;
-            itemDetails.appendChild(addedTime);
-        }
+        const meta = el("p", { className: "item-meta" });
         if (item.removed_at) {
             listItem.classList.add("is-removed");
-            itemText.title = `Removed ${new Date(item.removed_at).toLocaleString()}`;
+            meta.append(`Crossed off by ${item.removed_by_name || "a former member"}`);
+        } else {
+            meta.append(`Added by ${item.added_by_name || "a former member"}`);
+            if (item.created_at && Number.isFinite(Date.parse(item.created_at))) {
+                meta.append(" · ", el("time", {
+                    className: "item-added-time",
+                    dateTime: item.created_at,
+                    title: `Added ${new Date(item.created_at).toLocaleString()}`,
+                    textContent: formatElapsedTime(item.created_at)
+                }));
+            }
         }
 
-        const removeButton = document.createElement("button");
-        removeButton.className = "remove-btn";
-        removeButton.textContent = item.removed_at ? "Removed" : "Remove";
-        removeButton.disabled = item.pending === true || Boolean(item.removed_at);
-        removeButton.addEventListener("click", async function () {
-            removeButton.disabled = true;
-            const requestId = crypto.randomUUID();
-            if (item.id) pendingRequestIds.add(requestId);
+        const details = el("div", { className: "item-details" },
+            el("span", {
+                className: "item-name",
+                textContent: item.name,
+                title: item.removed_at ? `Removed ${new Date(item.removed_at).toLocaleString()}` : undefined
+            }),
+            meta
+        );
 
-            try {
-                let removedItem;
-                if (item.id) {
-                    const response = await fetch(`${GROCERY_ITEMS_API_URL}items/${encodeURIComponent(item.id)}`, {
-                        method: "DELETE",
-                        headers: { "X-Client-Request-Id": requestId }
-                    });
-
-                    if (!response.ok) {
-                        throw new Error(`Failed to delete grocery item: ${response.status}`);
-                    }
-
-                    const result = await response.json();
-                    if (!result?.item || !result.item.removed_at) {
-                        throw new Error("The grocery items API did not return the removal time.");
-                    }
-                    removedItem = result.item;
-                } else {
-                    removedItem = { ...item, removed_at: new Date().toISOString() };
-                }
-
-                markItemRemoved(removedItem, item);
-            } catch (error) {
-                console.error("Unable to delete grocery item:", error);
-                removeButton.disabled = false;
-            } finally {
-                pendingRequestIds.delete(requestId);
-            }
-        });
-
-        listItem.append(itemDetails, removeButton);
+        listItem.append(details);
+        if (canEdit) {
+            const removeButton = el("button", {
+                type: "button",
+                className: "remove-btn",
+                textContent: item.removed_at ? "Removed" : "Remove",
+                disabled: item.pending === true || Boolean(item.removed_at)
+            });
+            removeButton.addEventListener("click", () => removeItem(item, removeButton));
+            listItem.append(removeButton);
+        }
         groceryList.appendChild(listItem);
     });
 
-    updateEmptyMessage();
+    emptyMessage.textContent = itemsLoaded ? "This list is empty." : "Loading…";
+    emptyMessage.style.display = items.length === 0 ? "block" : "none";
     scheduleRemovedItemExpiration();
 }
 
-groceryForm.addEventListener("submit", async function (event) {
+groceryForm.addEventListener("submit", async (event) => {
     event.preventDefault();
+    const name = itemInput.value.trim();
+    if (!name || !activeList) return;
 
-    const itemName = itemInput.value.trim();
-
-    if (itemName === "") {
-        return;
-    }
-
-    const listId = activeListId;
+    const listId = activeList.id;
     const requestId = crypto.randomUUID();
     const item = {
         id: null,
-        name: itemName,
+        listId,
+        name,
         created_at: new Date().toISOString(),
+        added_by_name: currentUser.display_name,
         pending: true,
         requestId
     };
     pendingRequestIds.add(requestId);
     itemsToAnimateIn.add(item);
-    lists[listId].push(item);
-
-    saveLists();
-    renderCurrentList();
+    items.push(item);
+    renderItems();
     itemInput.value = "";
     itemInput.focus();
 
     try {
-        const response = await fetch(`${GROCERY_ITEMS_API_URL}items`, {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                "X-Client-Request-Id": requestId
-            },
-            body: JSON.stringify({
-                list_id: "550e8400-e29b-41d4-a716-446655440000",
-                name: itemName,
-                quantity: 1,
-                unit: null,
-                created_by: "7c9e6679-7425-40de-944b-e07fc1f90ae7"
-            })
-        });
-
-        if (!response.ok) {
-            throw new Error(`Failed to save grocery item: ${response.status}`);
-        }
-
-        const result = await response.json();
-        if (!result?.item || typeof result.item.id !== "string") {
-            throw new Error("The grocery items API did not return the saved item ID.");
-        }
-
+        const result = await api(`lists/${listId}/items`, { method: "POST", body: { name }, requestId });
         upsertItem(result.item, requestId);
     } catch (error) {
-        console.error("Unable to save grocery item:", error);
-
-        const items = lists[listId];
-        const itemIndex = items.indexOf(item);
-        if (itemIndex !== -1) items.splice(itemIndex, 1);
-
-        saveLists();
-        renderCurrentList();
+        const index = items.indexOf(item);
+        if (index !== -1) items.splice(index, 1);
+        renderItems();
+        showToast(`Couldn't add "${name}": ${error.message}`);
     } finally {
         pendingRequestIds.delete(requestId);
     }
 });
 
-listSelector.addEventListener("change", function () {
-    activeListId = listSelector.value;
-    renderCurrentList();
-});
+async function removeItem(item, button) {
+    if (!item.id || !activeList) return;
+    button.disabled = true;
+    const requestId = crypto.randomUUID();
+    pendingRequestIds.add(requestId);
 
-
-
-function updateEmptyMessage() {
-    emptyMessage.style.display = groceryList.children.length === 0 ? "block" : "none";
-}
-
-function formatElapsedTime(timestamp) {
-    const elapsedHours = Math.max(0, Math.floor((Date.now() - Date.parse(timestamp)) / 3600000));
-
-    if (elapsedHours < 1) return "Added less than an hour ago";
-    if (elapsedHours < 24) {
-        return `Added ${elapsedHours} ${elapsedHours === 1 ? "hour" : "hours"} ago`;
+    try {
+        const result = await api(`lists/${activeList.id}/items/${encodeURIComponent(item.id)}`, {
+            method: "DELETE",
+            requestId
+        });
+        markItemRemoved(result.item, item);
+    } catch (error) {
+        button.disabled = false;
+        showToast(`Couldn't remove "${item.name}": ${error.message}`);
+    } finally {
+        pendingRequestIds.delete(requestId);
     }
-
-    const elapsedDays = Math.floor(elapsedHours / 24);
-    return `Added ${elapsedDays} ${elapsedDays === 1 ? "day" : "days"} ago`;
 }
 
-function refreshElapsedTimeLabels() {
+function upsertItem(apiItem, requestId = null) {
+    if (!activeList || apiItem.list_id !== activeList.id) return;
+    const incoming = normalizeItem(apiItem);
+    const existing = items.find((item) => item.id === incoming.id);
+    const pending = requestId ? items.find((item) => item.requestId === requestId) : null;
+
+    if (existing && pending && existing !== pending) {
+        items.splice(items.indexOf(pending), 1);
+    }
+    const target = existing || pending;
+    if (target) {
+        Object.assign(target, incoming, { pending: false });
+        delete target.requestId;
+    } else {
+        itemsToAnimateIn.add(incoming);
+        items.push(incoming);
+    }
+    renderItems();
+}
+
+function markItemRemoved(apiItem, knownItem = null) {
+    const target = knownItem || items.find((item) => item.id === apiItem.id);
+    if (!target) return;
+    Object.assign(target, normalizeItem(apiItem));
+    itemsToAnimateRemoved.add(target);
+    renderItems();
+}
+
+// Crossed-off items disappear 24h after removal; refresh when the next one expires.
+function scheduleRemovedItemExpiration() {
+    clearTimeout(removedItemExpirationTimer);
+    const expiryTimes = items
+        .filter((item) => item.removed_at)
+        .map((item) => Date.parse(item.removed_at) + REMOVED_ITEM_RETENTION_MS)
+        .filter(Number.isFinite);
+    if (expiryTimes.length === 0) return;
+
+    removedItemExpirationTimer = setTimeout(() => {
+        refreshItems().catch((error) => console.error("Unable to refresh expired items:", error));
+    }, Math.max(0, Math.min(...expiryTimes) - Date.now()));
+}
+
+setInterval(() => {
     document.querySelectorAll(".item-added-time").forEach((label) => {
         label.textContent = formatElapsedTime(label.dateTime);
     });
-}
+}, 60000);
 
-setInterval(refreshElapsedTimeLabels, 60000);
+// ---------------------------------------------------------------------------
+// Live updates (server-sent events, one stream for the open list)
+// ---------------------------------------------------------------------------
 
-function upsertItem(apiItem, requestId = null) {
-    const existingEntry = Object.entries(lists)
-        .flatMap(([listId, items]) => items
-            .filter((item) => item.id === apiItem.id)
-            .map((item) => ({ listId, item })))
-        [0];
-    const pendingEntry = requestId
-        ? Object.entries(lists)
-            .flatMap(([listId, items]) => items
-                .filter((item) => item.requestId === requestId)
-                .map((item) => ({ listId, item })))
-            [0]
-        : null;
-    const item = existingEntry?.item || pendingEntry?.item || { id: apiItem.id, name: apiItem.name };
-    if (!existingEntry && !pendingEntry) itemsToAnimateIn.add(item);
+let reconnectCheckTimer;
 
-    item.id = apiItem.id;
-    item.name = apiItem.name.trim();
-    item.created_at = apiItem.created_at || item.created_at || null;
-    item.removed_at = apiItem.removed_at || null;
-    item.pending = false;
-    delete item.requestId;
+function connectEvents(listId) {
+    eventSource?.close();
+    clearTimeout(reconnectCheckTimer);
 
-    if (existingEntry && pendingEntry && existingEntry.item !== pendingEntry.item) {
-        lists[pendingEntry.listId].splice(
-            lists[pendingEntry.listId].indexOf(pendingEntry.item),
-            1
-        );
-    } else if (!existingEntry && !pendingEntry) {
-        lists.weekly.push(item);
-    }
+    const source = new EventSource(`${API_URL}lists/${listId}/events`, { withCredentials: true });
+    eventSource = source;
 
-    saveLists();
-    renderCurrentList();
-}
-
-function markItemRemoved(apiItem, fallbackItem = null) {
-    const matchingItem = fallbackItem || Object.values(lists)
-        .flat()
-        .find((item) => item.id === apiItem.id);
-
-    if (matchingItem) {
-        matchingItem.removed_at = apiItem.removed_at;
-        itemsToAnimateRemoved.add(matchingItem);
-        saveLists();
-        renderCurrentList();
-    }
-}
-
-function scheduleRemovedItemExpiration() {
-    clearTimeout(removedItemExpirationTimer);
-    const expiryTimes = Object.values(lists)
-        .flat()
-        .filter((item) => item.removed_at)
-        .map((item) => Date.parse(item.removed_at) + 24 * 60 * 60 * 1000)
-        .filter(Number.isFinite);
-
-    if (expiryTimes.length === 0) return;
-
-    const nextExpiry = Math.min(...expiryTimes);
-    removedItemExpirationTimer = setTimeout(() => {
-        refreshItemsFromApi().catch((error) => {
-            console.error("Unable to refresh grocery items after removal retention expired:", error);
-            const now = Date.now();
-            Object.keys(lists).forEach((listId) => {
-                lists[listId] = lists[listId].filter((item) =>
-                    !item.removed_at || Date.parse(item.removed_at) + 24 * 60 * 60 * 1000 > now
-                );
-            });
-            saveLists();
-            renderCurrentList();
-        });
-    }, Math.max(0, nextExpiry - Date.now()));
-}
-
-async function refreshItemsFromApi() {
-    const response = await fetch(`${GROCERY_ITEMS_API_URL}items`, { method: "GET" });
-
-    if (!response.ok) {
-        throw new Error(`Failed to load grocery items: ${response.status}`);
-    }
-
-    const result = await response.json();
-    if (!result || !Array.isArray(result.items) || !result.items.every(
-        (item) => item && typeof item.id === "string" && typeof item.name === "string"
-    )) {
-        throw new Error("The grocery items API must return an object containing named items with IDs.");
-    }
-
-    const pendingItems = lists.weekly.filter((item) => item.pending);
-    lists.weekly = result.items
-        .map((item) => ({
-            id: item.id,
-            name: item.name.trim(),
-            created_at: item.created_at || null,
-            removed_at: item.removed_at || null
-        }))
-        .filter((item) => item.name);
-    lists.weekly.push(...pendingItems);
-    saveLists();
-    renderCurrentList();
-}
-
-const itemEvents = new EventSource(`${GROCERY_ITEMS_API_URL}items/events`);
-itemEvents.addEventListener("open", () => {
-    refreshItemsFromApi().catch((error) => {
-        console.error("Unable to refresh grocery items after connecting to the event stream:", error);
+    source.addEventListener("open", () => {
+        refreshItems().catch((error) => console.error("Unable to refresh items after reconnecting:", error));
     });
-});
-itemEvents.addEventListener("items-changed", (event) => {
-    try {
-        const change = JSON.parse(event.data);
-        if (change.requestId && pendingRequestIds.has(change.requestId)) return;
 
-        if (change.type === "created" && change.item
-            && typeof change.item.id === "string" && typeof change.item.name === "string") {
+    source.addEventListener("list-changed", (event) => {
+        try {
+            handleListChange(JSON.parse(event.data));
+        } catch (error) {
+            console.error("Unable to process list update:", error);
+        }
+    });
+
+    // The browser retries dropped connections by itself. It gives up (CLOSED) when the
+    // server refuses, e.g. we were removed from the list or signed out, so re-check then.
+    source.addEventListener("error", () => {
+        if (source.readyState !== EventSource.CLOSED || eventSource !== source) return;
+        reconnectCheckTimer = setTimeout(async () => {
+            if (!currentUser || eventSource !== source) return;
+            try {
+                const { user } = await api("auth/me");
+                if (!user) return handleSignedOut("Your session ended. Please sign in again.");
+                const stillMember = (await api("lists")).lists.some((list) => list.id === listId);
+                if (stillMember) connectEvents(listId);
+                else loadLists();
+            } catch (error) {
+                console.error("Unable to re-check list access:", error);
+            }
+        }, 3000);
+    });
+}
+
+function handleListChange(change) {
+    if (!activeList || change.listId !== activeList.id) return;
+    if (change.requestId && pendingRequestIds.has(change.requestId)) return;
+
+    switch (change.type) {
+        case "created":
             upsertItem(change.item, change.requestId);
-        } else if (change.type === "removed" && change.item
-            && typeof change.item.id === "string" && change.item.removed_at) {
+            break;
+        case "removed":
             markItemRemoved(change.item);
-        }
-    } catch (error) {
-        console.error("Unable to process grocery item update:", error);
-    }
-});
-
-document.querySelectorAll("[data-dialog]").forEach((button) => {
-    button.addEventListener("click", function () {
-        profileMenu.open = false;
-        document.getElementById(button.dataset.dialog).showModal();
-    });
-});
-
-document.addEventListener("click", function (event) {
-    if (!profileMenu.contains(event.target)) {
-        profileMenu.open = false;
-    }
-});
-
-async function initializeLists() {
-    try {
-        await refreshItemsFromApi();
-    } catch (error) {
-        if (!loadSavedLists()) {
-            console.error("Unable to load grocery items:", error);
-        }
-        renderCurrentList();
+            break;
+        case "list-updated":
+            activeList.name = change.name;
+            renderListSelector();
+            renderListHeading();
+            break;
+        case "list-deleted":
+            showToast(`"${activeList.name}" was deleted by its owner.`);
+            activeList = null;
+            loadLists().catch((error) => showToast(error.message));
+            break;
+        case "members-changed":
+            if (change.removedUserId === currentUser.id) {
+                showToast(`You no longer have access to "${activeList.name}".`);
+                activeList = null;
+                loadLists().catch((error) => showToast(error.message));
+            } else {
+                refreshListMetadata().catch((error) => console.error(error));
+                if (listDialog.open) loadMembers();
+            }
+            break;
+        default:
+            break;
     }
 }
 
-initializeLists();
+// ---------------------------------------------------------------------------
+// New list dialog
+// ---------------------------------------------------------------------------
+
+function openNewListDialog() {
+    const form = $("newListForm");
+    form.reset();
+    setFormError(form, "");
+    $("newListDialog").showModal();
+}
+
+$("newListButton").addEventListener("click", openNewListDialog);
+$("firstListButton").addEventListener("click", openNewListDialog);
+
+$("newListForm").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const name = form.elements.name.value.trim();
+    if (!name) return;
+
+    try {
+        const { list } = await api("lists", { method: "POST", body: { name } });
+        $("newListDialog").close();
+        await loadLists(list.id);
+        showToast(`Created "${list.name}".`);
+    } catch (error) {
+        setFormError(form, error.message);
+    }
+});
+
+// ---------------------------------------------------------------------------
+// Share & manage dialog
+// ---------------------------------------------------------------------------
+
+$("manageListButton").addEventListener("click", () => {
+    if (!activeList) return;
+    const isOwner = activeList.role === "owner";
+    listDialog.classList.toggle("is-owner", isOwner);
+    $("listDialogTitle").textContent = activeList.name;
+    $("renameListForm").elements.name.value = activeList.name;
+    $("addMemberForm").reset();
+    listDialogError.textContent = "";
+    memberList.replaceChildren(el("li", { className: "muted small", textContent: "Loading…" }));
+    listDialog.showModal();
+    loadMembers();
+});
+
+async function loadMembers() {
+    if (!activeList) return;
+    try {
+        const { members } = await api(`lists/${activeList.id}/members`);
+        renderMembers(members);
+    } catch (error) {
+        listDialogError.textContent = error.message;
+    }
+}
+
+function renderMembers(members) {
+    const isOwner = activeList.role === "owner";
+    memberList.replaceChildren(...members.map((member) => {
+        const isMe = member.user_id === currentUser.id;
+        const who = el("div", { className: "member-who" },
+            el("strong", { textContent: `${member.display_name || member.email}${isMe ? " (you)" : ""}` }),
+            el("span", { className: "muted small", textContent: member.email })
+        );
+
+        let access;
+        if (member.role === "owner") {
+            access = el("span", { className: "role-badge", textContent: "Owner" });
+        } else if (isOwner) {
+            access = el("select", { ariaLabel: `Access for ${member.email}` },
+                el("option", { value: "editor", textContent: "Can edit", selected: member.role === "editor" }),
+                el("option", { value: "viewer", textContent: "Can view", selected: member.role === "viewer" })
+            );
+            access.addEventListener("change", () => updateMemberRole(member, access.value));
+        } else {
+            access = el("span", { className: "role-badge", textContent: member.role === "editor" ? "Can edit" : "Can view" });
+        }
+
+        const remove = isOwner && member.role !== "owner"
+            ? el("button", { type: "button", className: "remove-btn", textContent: "Remove", onclick: () => removeMember(member) })
+            : null;
+
+        return el("li", { className: "member-row" }, who, access, remove);
+    }));
+}
+
+async function updateMemberRole(member, role) {
+    listDialogError.textContent = "";
+    try {
+        const { members } = await api(`lists/${activeList.id}/members/${member.user_id}`, {
+            method: "PATCH",
+            body: { role }
+        });
+        renderMembers(members);
+    } catch (error) {
+        listDialogError.textContent = error.message;
+        loadMembers();
+    }
+}
+
+async function removeMember(member) {
+    if (!confirm(`Remove ${member.display_name || member.email} from "${activeList.name}"?`)) return;
+    listDialogError.textContent = "";
+    try {
+        await api(`lists/${activeList.id}/members/${member.user_id}`, { method: "DELETE" });
+        await loadMembers();
+        await refreshListMetadata();
+    } catch (error) {
+        listDialogError.textContent = error.message;
+    }
+}
+
+$("addMemberForm").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    listDialogError.textContent = "";
+    try {
+        const { members } = await api(`lists/${activeList.id}/members`, {
+            method: "POST",
+            body: { email: form.elements.email.value.trim(), role: form.elements.role.value }
+        });
+        renderMembers(members);
+        form.reset();
+        await refreshListMetadata();
+    } catch (error) {
+        listDialogError.textContent = error.message;
+    }
+});
+
+$("renameListForm").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const name = event.currentTarget.elements.name.value.trim();
+    if (!name) return;
+    listDialogError.textContent = "";
+    try {
+        const { list } = await api(`lists/${activeList.id}`, { method: "PATCH", body: { name } });
+        activeList.name = list.name;
+        $("listDialogTitle").textContent = list.name;
+        renderListSelector();
+        renderListHeading();
+        showToast("List renamed.");
+    } catch (error) {
+        listDialogError.textContent = error.message;
+    }
+});
+
+$("deleteListButton").addEventListener("click", async () => {
+    if (!confirm(`Delete "${activeList.name}" and all its items for everyone on it? This can't be undone.`)) return;
+    try {
+        const name = activeList.name;
+        await api(`lists/${activeList.id}`, { method: "DELETE" });
+        listDialog.close();
+        activeList = null;
+        await loadLists();
+        showToast(`Deleted "${name}".`);
+    } catch (error) {
+        listDialogError.textContent = error.message;
+    }
+});
+
+$("leaveListButton").addEventListener("click", async () => {
+    if (!confirm(`Leave "${activeList.name}"? You'll need the owner to add you again.`)) return;
+    try {
+        const name = activeList.name;
+        await api(`lists/${activeList.id}/members/${currentUser.id}`, { method: "DELETE" });
+        listDialog.close();
+        activeList = null;
+        await loadLists();
+        showToast(`You left "${name}".`);
+    } catch (error) {
+        listDialogError.textContent = error.message;
+    }
+});
+
+// ---------------------------------------------------------------------------
+// Account settings dialog
+// ---------------------------------------------------------------------------
+
+function openAccountDialog() {
+    const form = $("accountForm");
+    form.reset();
+    form.elements.display_name.value = currentUser.display_name || "";
+    form.elements.email.value = currentUser.email;
+    setFormError(form, "");
+    $("accountDialog").showModal();
+}
+
+$("accountForm").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const fields = form.elements;
+    const body = { display_name: fields.display_name.value.trim() };
+
+    if (fields.new_password.value) {
+        if (fields.new_password.value.length < 8) {
+            return setFormError(form, "New password must be at least 8 characters.");
+        }
+        body.current_password = fields.current_password.value;
+        body.new_password = fields.new_password.value;
+    }
+
+    try {
+        const { user } = await api("auth/me", { method: "PATCH", body });
+        currentUser = user;
+        renderProfile();
+        $("accountDialog").close();
+        showToast(body.new_password ? "Name and password saved." : "Saved.");
+        refreshItems().catch(() => {});
+    } catch (error) {
+        setFormError(form, error.message);
+    }
+});
+
+// ---------------------------------------------------------------------------
+// Admin dialog
+// ---------------------------------------------------------------------------
+
+async function openAdminDialog() {
+    adminError.textContent = "";
+    adminUserList.replaceChildren(el("li", { className: "muted small", textContent: "Loading…" }));
+    adminDialog.showModal();
+    await loadAdminUsers();
+}
+
+async function loadAdminUsers() {
+    try {
+        const { users } = await api("admin/users");
+        adminUserList.replaceChildren(...users.map(renderAdminUser));
+    } catch (error) {
+        adminError.textContent = error.message;
+    }
+}
+
+async function adminUpdate(user, body, successMessage) {
+    adminError.textContent = "";
+    try {
+        const { user: updated } = await api(`admin/users/${user.id}`, { method: "PATCH", body });
+        if (updated.id === currentUser.id) {
+            currentUser = { ...currentUser, ...updated };
+            renderProfile();
+        }
+        showToast(successMessage);
+        return updated;
+    } catch (error) {
+        adminError.textContent = `${user.email}: ${error.message}`;
+        return null;
+    }
+}
+
+function renderAdminUser(user) {
+    const isMe = user.id === currentUser.id;
+
+    const nameInput = el("input", { type: "text", value: user.display_name || "", maxLength: 50, ariaLabel: "Name" });
+    const emailInput = el("input", { type: "email", value: user.email, ariaLabel: "Email" });
+    const saveButton = el("button", { type: "submit", className: "secondary-btn", textContent: "Save" });
+    const detailsForm = el("form", { className: "inline-form" },
+        el("label", { className: "grow" }, el("span", { className: "small muted", textContent: "Name" }), nameInput),
+        el("label", { className: "grow" }, el("span", { className: "small muted", textContent: "Email" }), emailInput),
+        saveButton
+    );
+    detailsForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const updated = await adminUpdate(user, {
+            display_name: nameInput.value.trim(),
+            email: emailInput.value.trim()
+        }, "User details saved.");
+        if (updated) Object.assign(user, updated);
+    });
+
+    const toggle = (label, field, disabledReason) => {
+        const input = el("input", { type: "checkbox", checked: user[field], disabled: Boolean(disabledReason) });
+        input.addEventListener("change", async () => {
+            const updated = await adminUpdate(user, { [field]: input.checked }, `${label} ${input.checked ? "on" : "off"} for ${user.email}.`);
+            if (updated) Object.assign(user, updated);
+            else input.checked = !input.checked;
+        });
+        return el("label", { className: "toggle", title: disabledReason || "" }, input, ` ${label}`);
+    };
+
+    const passwordInput = el("input", { type: "password", placeholder: "New password (8+ chars)", minLength: 8, autocomplete: "new-password", ariaLabel: "New password" });
+    const passwordForm = el("form", { className: "inline-form" },
+        el("label", { className: "grow" }, passwordInput),
+        el("button", { type: "submit", className: "secondary-btn", textContent: "Set password" })
+    );
+    passwordForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        if (passwordInput.value.length < 8) {
+            adminError.textContent = "Passwords must be at least 8 characters.";
+            return;
+        }
+        if (await adminUpdate(user, { password: passwordInput.value }, `Password changed for ${user.email}. They've been signed out.`)) {
+            passwordInput.value = "";
+        }
+    });
+
+    const deleteButton = el("button", {
+        type: "button",
+        className: "danger-btn",
+        textContent: "Delete user",
+        disabled: isMe,
+        title: isMe ? "You can't delete your own account here" : ""
+    });
+    deleteButton.addEventListener("click", async () => {
+        if (!confirm(`Delete ${user.email}? Their shared lists go to another member; lists only they use are deleted.`)) return;
+        adminError.textContent = "";
+        try {
+            await api(`admin/users/${user.id}`, { method: "DELETE" });
+            showToast(`Deleted ${user.email}.`);
+            await loadAdminUsers();
+        } catch (error) {
+            adminError.textContent = `${user.email}: ${error.message}`;
+        }
+    });
+
+    const summary = el("p", { className: "small muted" },
+        `Joined ${new Date(user.created_at).toLocaleDateString()} · owns ${plural(user.owned_list_count, "list")} · on ${user.shared_list_count} shared`
+    );
+
+    return el("li", { className: `admin-user${user.is_disabled ? " is-disabled" : ""}` },
+        el("div", { className: "admin-user-head" },
+            el("strong", { textContent: `${user.display_name || user.email}${isMe ? " (you)" : ""}` }),
+            user.is_admin ? el("span", { className: "role-badge", textContent: "Admin" }) : null,
+            user.is_disabled ? el("span", { className: "role-badge is-danger", textContent: "Disabled" }) : null
+        ),
+        summary,
+        detailsForm,
+        el("div", { className: "admin-user-actions" },
+            toggle("Admin", "is_admin", isMe && "You can't remove your own admin access"),
+            toggle("Disabled", "is_disabled", isMe && "You can't disable your own account"),
+            deleteButton
+        ),
+        passwordForm
+    );
+}
+
+adminDialog.addEventListener("close", () => {
+    // Pick up any changes to our own name / lists made from the admin panel.
+    if (currentUser) refreshListMetadata().catch(() => {});
+});
+
+// ---------------------------------------------------------------------------
+// Menus and dialogs
+// ---------------------------------------------------------------------------
+
+const menuActions = {
+    account: openAccountDialog,
+    admin: openAdminDialog,
+    about: () => $("aboutDialog").showModal(),
+    logout: signOut
+};
+
+document.querySelectorAll("[data-action]").forEach((button) => {
+    button.addEventListener("click", () => {
+        profileMenu.open = false;
+        menuActions[button.dataset.action]();
+    });
+});
+
+document.querySelectorAll("[data-close]").forEach((button) => {
+    button.addEventListener("click", () => button.closest("dialog").close());
+});
+
+document.addEventListener("click", (event) => {
+    if (!profileMenu.contains(event.target)) profileMenu.open = false;
+});
+
+// ---------------------------------------------------------------------------
+// Start
+// ---------------------------------------------------------------------------
+
+async function initialize() {
+    try {
+        const { user } = await api("auth/me");
+        if (user) await setSignedIn(user);
+        else handleSignedOut();
+    } catch (error) {
+        handleSignedOut(error.message);
+    }
+}
+
+initialize();
