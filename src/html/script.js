@@ -813,22 +813,107 @@ $("accountForm").addEventListener("submit", async (event) => {
 // Admin dialog
 // ---------------------------------------------------------------------------
 
+const ADMIN_PAGE_SIZE = 25;
+const adminSearchForm = $("adminSearchForm");
+const adminState = { search: "", filter: "all", offset: 0, total: 0 };
+const expandedAdminUserIds = new Set();
+let adminSearchTimer;
+let adminRequestNumber = 0;
+
 async function openAdminDialog() {
     adminError.textContent = "";
+    adminSearchForm.reset();
+    Object.assign(adminState, { search: "", filter: "all", offset: 0 });
+    expandedAdminUserIds.clear();
     adminUserList.replaceChildren(el("li", { className: "muted small", textContent: "Loading…" }));
     adminDialog.showModal();
-    await loadAdminUsers();
+    await Promise.all([loadAdminStats(), loadAdminUsers()]);
 }
 
-async function loadAdminUsers() {
+async function loadAdminStats() {
     try {
-        const { users } = await api("admin/users");
-        adminUserList.replaceChildren(...users.map(renderAdminUser));
+        const { stats } = await api("admin/stats");
+        const tile = (label, value, detail) => el("div", { className: "stat-tile" },
+            el("dt", { textContent: label }),
+            el("dd", { className: "stat-value", textContent: value.toLocaleString() }),
+            detail ? el("dd", { className: "stat-detail", textContent: detail }) : null
+        );
+        $("adminStats").replaceChildren(
+            tile("Users", stats.users, `${stats.new_users_7d} new this week`),
+            tile("Lists", stats.lists, `${stats.shared_lists} shared`),
+            tile("Open items", stats.open_items),
+            tile("Admins", stats.admins),
+            tile("Disabled", stats.disabled_users)
+        );
     } catch (error) {
         adminError.textContent = error.message;
     }
 }
 
+async function loadAdminUsers() {
+    const requestNumber = ++adminRequestNumber;
+    const params = new URLSearchParams({
+        search: adminState.search,
+        filter: adminState.filter,
+        limit: ADMIN_PAGE_SIZE,
+        offset: adminState.offset
+    });
+
+    try {
+        const { users, total } = await api(`admin/users?${params}`);
+        if (requestNumber !== adminRequestNumber) return; // a newer search is in flight
+
+        // Deleting the last user on a page: step back a page.
+        if (users.length === 0 && total > 0 && adminState.offset > 0) {
+            adminState.offset = Math.max(0, adminState.offset - ADMIN_PAGE_SIZE);
+            return loadAdminUsers();
+        }
+
+        adminState.total = total;
+        adminUserList.replaceChildren(...(users.length
+            ? users.map(renderAdminUser)
+            : [el("li", { className: "muted small admin-empty", textContent: "No users match your search." })]));
+        renderAdminPager(users.length);
+    } catch (error) {
+        if (requestNumber === adminRequestNumber) adminError.textContent = error.message;
+    }
+}
+
+function renderAdminPager(shownCount) {
+    const { offset, total } = adminState;
+    const filtered = adminState.search || adminState.filter !== "all";
+    $("adminResultCount").textContent = total === 0
+        ? ""
+        : `Showing ${offset + 1}–${offset + shownCount} of ${plural(total, filtered ? "matching user" : "user")}`;
+    $("adminPager").hidden = total <= ADMIN_PAGE_SIZE;
+    $("adminPrevPage").disabled = offset === 0;
+    $("adminNextPage").disabled = offset + shownCount >= total;
+}
+
+// Search as you type (debounced), filter immediately.
+adminSearchForm.addEventListener("input", (event) => {
+    clearTimeout(adminSearchTimer);
+    const delay = event.target.name === "search" ? 250 : 0;
+    adminSearchTimer = setTimeout(() => {
+        adminState.search = adminSearchForm.elements.search.value.trim();
+        adminState.filter = adminSearchForm.elements.filter.value;
+        adminState.offset = 0;
+        adminError.textContent = "";
+        loadAdminUsers();
+    }, delay);
+});
+adminSearchForm.addEventListener("submit", (event) => event.preventDefault());
+
+$("adminPrevPage").addEventListener("click", () => {
+    adminState.offset = Math.max(0, adminState.offset - ADMIN_PAGE_SIZE);
+    loadAdminUsers();
+});
+$("adminNextPage").addEventListener("click", () => {
+    adminState.offset += ADMIN_PAGE_SIZE;
+    loadAdminUsers();
+});
+
+// Saves a change, then refreshes the list (keeping search/page) and the overview numbers.
 async function adminUpdate(user, body, successMessage) {
     adminError.textContent = "";
     try {
@@ -838,6 +923,8 @@ async function adminUpdate(user, body, successMessage) {
             renderProfile();
         }
         showToast(successMessage);
+        loadAdminUsers();
+        loadAdminStats();
         return updated;
     } catch (error) {
         adminError.textContent = `${user.email}: ${error.message}`;
@@ -850,27 +937,21 @@ function renderAdminUser(user) {
 
     const nameInput = el("input", { type: "text", value: user.display_name || "", maxLength: 50, ariaLabel: "Name" });
     const emailInput = el("input", { type: "email", value: user.email, ariaLabel: "Email" });
-    const saveButton = el("button", { type: "submit", className: "secondary-btn", textContent: "Save" });
     const detailsForm = el("form", { className: "inline-form" },
         el("label", { className: "grow" }, el("span", { className: "small muted", textContent: "Name" }), nameInput),
         el("label", { className: "grow" }, el("span", { className: "small muted", textContent: "Email" }), emailInput),
-        saveButton
+        el("button", { type: "submit", className: "secondary-btn", textContent: "Save" })
     );
-    detailsForm.addEventListener("submit", async (event) => {
+    detailsForm.addEventListener("submit", (event) => {
         event.preventDefault();
-        const updated = await adminUpdate(user, {
-            display_name: nameInput.value.trim(),
-            email: emailInput.value.trim()
-        }, "User details saved.");
-        if (updated) Object.assign(user, updated);
+        adminUpdate(user, { display_name: nameInput.value.trim(), email: emailInput.value.trim() }, "User details saved.");
     });
 
     const toggle = (label, field, disabledReason) => {
         const input = el("input", { type: "checkbox", checked: user[field], disabled: Boolean(disabledReason) });
         input.addEventListener("change", async () => {
             const updated = await adminUpdate(user, { [field]: input.checked }, `${label} ${input.checked ? "on" : "off"} for ${user.email}.`);
-            if (updated) Object.assign(user, updated);
-            else input.checked = !input.checked;
+            if (!updated) input.checked = !input.checked;
         });
         return el("label", { className: "toggle", title: disabledReason || "" }, input, ` ${label}`);
     };
@@ -880,15 +961,13 @@ function renderAdminUser(user) {
         el("label", { className: "grow" }, passwordInput),
         el("button", { type: "submit", className: "secondary-btn", textContent: "Set password" })
     );
-    passwordForm.addEventListener("submit", async (event) => {
+    passwordForm.addEventListener("submit", (event) => {
         event.preventDefault();
         if (passwordInput.value.length < 8) {
             adminError.textContent = "Passwords must be at least 8 characters.";
             return;
         }
-        if (await adminUpdate(user, { password: passwordInput.value }, `Password changed for ${user.email}. They've been signed out.`)) {
-            passwordInput.value = "";
-        }
+        adminUpdate(user, { password: passwordInput.value }, `Password changed for ${user.email}. They've been signed out.`);
     });
 
     const deleteButton = el("button", {
@@ -903,32 +982,46 @@ function renderAdminUser(user) {
         adminError.textContent = "";
         try {
             await api(`admin/users/${user.id}`, { method: "DELETE" });
+            expandedAdminUserIds.delete(user.id);
             showToast(`Deleted ${user.email}.`);
-            await loadAdminUsers();
+            await Promise.all([loadAdminUsers(), loadAdminStats()]);
         } catch (error) {
             adminError.textContent = `${user.email}: ${error.message}`;
         }
     });
 
-    const summary = el("p", { className: "small muted" },
-        `Joined ${new Date(user.created_at).toLocaleDateString()} · owns ${plural(user.owned_list_count, "list")} · on ${user.shared_list_count} shared`
-    );
-
-    return el("li", { className: `admin-user${user.is_disabled ? " is-disabled" : ""}` },
-        el("div", { className: "admin-user-head" },
-            el("strong", { textContent: `${user.display_name || user.email}${isMe ? " (you)" : ""}` }),
-            user.is_admin ? el("span", { className: "role-badge", textContent: "Admin" }) : null,
-            user.is_disabled ? el("span", { className: "role-badge is-danger", textContent: "Disabled" }) : null
+    // Collapsed: one summary line. Expanded: the editing controls.
+    const row = el("details", {
+        className: `admin-user${user.is_disabled ? " is-disabled" : ""}`,
+        open: expandedAdminUserIds.has(user.id)
+    },
+        el("summary", { className: "admin-user-summary" },
+            el("span", { className: "admin-user-who" },
+                el("strong", { textContent: `${user.display_name || user.email}${isMe ? " (you)" : ""}` }),
+                el("span", { className: "small muted", textContent: user.email })
+            ),
+            el("span", { className: "admin-user-badges" },
+                user.is_admin ? el("span", { className: "role-badge", textContent: "Admin" }) : null,
+                user.is_disabled ? el("span", { className: "role-badge is-danger", textContent: "Disabled" }) : null
+            ),
+            el("span", { className: "small muted admin-user-lists", textContent: `${plural(user.owned_list_count, "list")} · ${user.shared_list_count} shared` })
         ),
-        summary,
-        detailsForm,
-        el("div", { className: "admin-user-actions" },
-            toggle("Admin", "is_admin", isMe && "You can't remove your own admin access"),
-            toggle("Disabled", "is_disabled", isMe && "You can't disable your own account"),
-            deleteButton
-        ),
-        passwordForm
+        el("div", { className: "admin-user-body" },
+            el("p", { className: "small muted", textContent: `Joined ${new Date(user.created_at).toLocaleDateString()}` }),
+            detailsForm,
+            el("div", { className: "admin-user-actions" },
+                toggle("Admin", "is_admin", isMe && "You can't remove your own admin access"),
+                toggle("Disabled", "is_disabled", isMe && "You can't disable your own account"),
+                deleteButton
+            ),
+            passwordForm
+        )
     );
+    row.addEventListener("toggle", () => {
+        if (row.open) expandedAdminUserIds.add(user.id);
+        else expandedAdminUserIds.delete(user.id);
+    });
+    return el("li", {}, row);
 }
 
 adminDialog.addEventListener("close", () => {

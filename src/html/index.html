@@ -244,10 +244,35 @@
     <dialog id="adminDialog" class="info-dialog admin-dialog">
       <button type="button" class="dialog-close" aria-label="Close" data-close>×</button>
       <p class="eyebrow">ADMIN</p>
-      <h2>Manage users</h2>
-      <p class="muted small">Changes save immediately. Deleting a user hands their shared lists to another member and deletes lists nobody else uses.</p>
+      <h2>Admin dashboard</h2>
+
+      <h3>Overview</h3>
+      <dl id="adminStats" class="stat-grid" aria-live="polite"></dl>
+
+      <h3>Users</h3>
+      <form id="adminSearchForm" class="admin-toolbar" role="search">
+        <label class="grow">
+          <span class="sr-only">Search users</span>
+          <input type="search" name="search" placeholder="Search by name or email" autocomplete="off" maxlength="100" />
+        </label>
+        <label>
+          <span class="sr-only">Show</span>
+          <select name="filter">
+            <option value="all">All users</option>
+            <option value="active">Active</option>
+            <option value="admins">Admins</option>
+            <option value="disabled">Disabled</option>
+          </select>
+        </label>
+      </form>
+      <p class="muted small">Select a user to edit them. Changes save immediately. Deleting a user hands their shared lists to another member and deletes lists nobody else uses.</p>
       <p id="adminError" class="form-error" role="alert"></p>
+      <p id="adminResultCount" class="small muted" aria-live="polite"></p>
       <ul id="adminUserList" class="admin-user-list"></ul>
+      <div id="adminPager" class="admin-pager" hidden>
+        <button type="button" id="adminPrevPage" class="secondary-btn">← Previous</button>
+        <button type="button" id="adminNextPage" class="secondary-btn">Next →</button>
+      </div>
     </dialog>
 
     <dialog id="aboutDialog" class="info-dialog">

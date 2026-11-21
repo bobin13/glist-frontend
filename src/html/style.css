@@ -531,6 +531,7 @@ body.is-signed-out .signed-in-only {
 
 input[type="text"],
 input[type="email"],
+input[type="search"],
 input[type="password"],
 .info-dialog select,
 .member-row select {
@@ -849,9 +850,6 @@ button:disabled {
 }
 
 .admin-user {
-    display: grid;
-    gap: 10px;
-    padding: 14px;
     border: 1px solid var(--border);
     border-radius: 12px;
     background: var(--surface);
@@ -861,11 +859,55 @@ button:disabled {
     border-color: #513432;
 }
 
-.admin-user-head {
+.admin-user-summary {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 8px;
+    gap: 8px 12px;
+    padding: 12px 14px;
+    cursor: pointer;
+    list-style: none;
+}
+
+.admin-user-summary::-webkit-details-marker {
+    display: none;
+}
+
+.admin-user-summary::after {
+    content: "Edit";
+    margin-left: auto;
+    color: var(--accent);
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.admin-user[open] > .admin-user-summary::after {
+    content: "Close";
+}
+
+.admin-user-summary:hover {
+    background: var(--surface-raised);
+    border-radius: 12px;
+}
+
+.admin-user-who {
+    display: grid;
+    flex: 1 1 200px;
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.admin-user-badges {
+    display: flex;
+    gap: 6px;
+}
+
+.admin-user-body {
+    display: grid;
+    gap: 10px;
+    padding: 4px 14px 14px;
+    border-top: 1px solid var(--border);
+    padding-top: 12px;
 }
 
 .admin-user-actions {
@@ -924,4 +966,74 @@ button:disabled {
 #addMemberForm {
     display: block;
     margin: 0;
+}
+
+/* Admin dashboard */
+
+.stat-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+    gap: 8px;
+}
+
+.stat-tile {
+    padding: 12px 14px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--surface);
+}
+
+.stat-tile dt {
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.stat-value {
+    margin-top: 4px;
+    color: var(--text);
+    font-size: 26px;
+    font-weight: 750;
+    letter-spacing: -0.03em;
+}
+
+.stat-detail {
+    color: var(--accent);
+    font-size: 12px;
+}
+
+.admin-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 0 0 8px;
+}
+
+.admin-toolbar .grow {
+    flex: 1 1 220px;
+}
+
+.admin-toolbar select {
+    width: auto;
+}
+
+#adminResultCount {
+    margin-bottom: 8px;
+}
+
+#adminResultCount:empty {
+    display: none;
+}
+
+.admin-empty {
+    padding: 18px;
+    border: 1px dashed #354036;
+    border-radius: 12px;
+    text-align: center;
+}
+
+.admin-pager {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 12px;
 }
